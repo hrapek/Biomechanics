@@ -1,4 +1,4 @@
-# Biometrics_4D_Humans
+# Biometrics
 
 Temporary version of everything used to calulate biometrics.
 
