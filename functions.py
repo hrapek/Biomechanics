@@ -315,7 +315,7 @@ def process_biometrics_df(folder='pickles'):
         n_tracklets = 0
         video_name = video.split("demo_")[1]
         walking_type, video_id, camera_type = video_name.split("-")
-        if camera_type == "side":
+        if camera_type == "side" or "side2":
             dim_step = 0
             dim_asym = 2
         else:
@@ -325,8 +325,7 @@ def process_biometrics_df(folder='pickles'):
         person_id = 0
         steps_length, avg_step_length, speed, time, distance = get_step_metrics(tracklets_dict, video, person_id=person_id, 
                                                                                 dim=dim_step, joint='Heel', smoothing=False)
-        asymmetry = get_asymmetry(tracklets_dict, video, person_id=person_id, dim=dim_asym, joint='Hip', smoothing=False)
-        print(asymmetry)
+        asymmetry = get_asymmetry(tracklets_dict, video, person_id=person_id, dim=dim_asym, joint='Hip', smoothing=True)
         output_dict["walking_type"].append(walking_type)
         output_dict["video_id"].append(video_id)
         output_dict["person_id"].append(person_id)
