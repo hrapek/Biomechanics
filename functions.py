@@ -213,6 +213,7 @@ def get_step_metrics(tracklets, video, person_id, dim, joint='Heel', smoothing=F
     steps_length, indices = reject_outliers(steps_length)
 
     #speed
+    print('Processing video (step_length):', video, 'id:', person_id)
     time = np.ptp(maxima[indices])
     distance = np.sum(steps_length[1:])
     speed = distance/time #meters per timeframe
@@ -304,14 +305,18 @@ def process_biometrics_df(folder='pickles'):
     model_outputs = load_pickles(folder=folder)
 
     tracklets_dict = {}
+    excluded = ['demo_abnormal-circumduction_gait-frontback']
 
     for video_name, video_results in model_outputs.items():
-        tracklets_dict[video_name] = extract_joints(video_results)
+        if video_name not in excluded:
+            tracklets_dict[video_name] = extract_joints(video_results)
     
     output_dict = {"walking_type": [], "video_id": [], "person_id": [], "camera_type": [], "steps_length": [], 
                    "avg_step_length": [], "speed": [], "time": [], "distance": [], "asymmetry": []}
     
+
     for video in tracklets_dict:
+
         n_tracklets = 0
         video_name = video.split("demo_")[1]
         walking_type, video_id, camera_type = video_name.split("-")
@@ -323,7 +328,12 @@ def process_biometrics_df(folder='pickles'):
             dim_asym = 0
 
         n_people = len(tracklets_dict[video])
+
+        
         for person_id in range(n_people):
+            if video == 'demo_normal-DTU4-back' and person_id == 1:
+                continue
+            
             steps_length, avg_step_length, speed, time, distance = get_step_metrics(tracklets_dict, video, person_id=person_id, 
                                                                                     dim=dim_step, joint='Heel', smoothing=False)
             asymmetry = get_asymmetry(tracklets_dict, video, person_id=person_id, dim=dim_asym, joint='Hip', smoothing=True)
