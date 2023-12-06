@@ -322,20 +322,21 @@ def process_biometrics_df(folder='pickles'):
             dim_step = 2
             dim_asym = 0
 
-        person_id = 0
-        steps_length, avg_step_length, speed, time, distance = get_step_metrics(tracklets_dict, video, person_id=person_id, 
-                                                                                dim=dim_step, joint='Heel', smoothing=False)
-        asymmetry = get_asymmetry(tracklets_dict, video, person_id=person_id, dim=dim_asym, joint='Hip', smoothing=True)
-        output_dict["walking_type"].append(walking_type)
-        output_dict["video_id"].append(video_id)
-        output_dict["person_id"].append(person_id)
-        output_dict["camera_type"].append(camera_type)
-        output_dict["steps_length"].append(steps_length)
-        output_dict["avg_step_length"].append(avg_step_length)
-        output_dict["speed"].append(speed)
-        output_dict["time"].append(time)
-        output_dict["distance"].append(distance)
-        output_dict["asymmetry"].append(asymmetry)
+        n_people = len(tracklets_dict[video])
+        for person_id in range(n_people):
+            steps_length, avg_step_length, speed, time, distance = get_step_metrics(tracklets_dict, video, person_id=person_id, 
+                                                                                    dim=dim_step, joint='Heel', smoothing=False)
+            asymmetry = get_asymmetry(tracklets_dict, video, person_id=person_id, dim=dim_asym, joint='Hip', smoothing=True)
+            output_dict["walking_type"].append(walking_type)
+            output_dict["video_id"].append(video_id)
+            output_dict["person_id"].append(person_id)
+            output_dict["camera_type"].append(camera_type)
+            output_dict["steps_length"].append(steps_length)
+            output_dict["avg_step_length"].append(avg_step_length)
+            output_dict["speed"].append(speed)
+            output_dict["time"].append(time)
+            output_dict["distance"].append(distance)
+            output_dict["asymmetry"].append(asymmetry)
         
     df = pd.DataFrame(output_dict)
     
