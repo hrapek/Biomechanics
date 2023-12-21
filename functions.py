@@ -81,21 +81,21 @@ def extract_joints(model_output):
     '''
 
     #check how many people are in the video:
-    n_tracklets = 0
+    tracklets_set = set()
     for frame in model_output.values():
-        n_tracklets = max(n_tracklets, len(frame['tracked_ids']))
+        for person_id in frame['tracked_ids']:
+            tracklets_set.add(person_id)
 
     #initialize joints dict with empty list for every detection
-    tracklets = {n: {joint: {dim: np.empty(0) for dim in range(3)} for joint in joint_dict} for n in range(n_tracklets)}
+    tracklets = {person_id: {joint: {dim: np.empty(0) for dim in range(3)} for joint in joint_dict} for person_id in tracklets_set}
 
-    #loop over frames and extract joints
+    # #loop over frames and extract joints
     for frame in model_output.values():
-        for person in frame['tracked_ids']:
-            person -= 1
+        for person_id in frame['tracked_ids']:
             for joint in joint_dict:
                 for dim in range(3):
-                    tracklets[person][joint][dim] = np.append(tracklets[person][joint][dim], frame['3d_joints'][person][joint_dict[joint]][dim])
-
+                    tracklets[person_id][joint][dim] = np.append(tracklets[person_id][joint][dim], frame['3d_joints'][frame['tracked_ids'].index(person_id)][joint_dict[joint]][dim])
+                    
     return tracklets
 
 def plot_joints_trajectory(tracklets, person_id, joint_list, dim):
@@ -145,6 +145,29 @@ def moving_average(data, window_size=3):
     """
     return data.rolling(window=window_size).mean()
 
+def filter_steps(difference, threshold=10):
+    '''
+    Filters out noise from steps. Step is only valid when taken after more than threshold timeframes.
+
+    '''
+    #set starting point as end of first step (usually cut short)
+    starting_point = argrelextrema(difference, np.greater)[0][0]
+
+    #get rid of first step
+    peaks = argrelextrema(difference, np.greater)[0][1:]
+    i = 0
+
+    for _ in range(len(peaks)):
+        if i != 0:   
+            frames_between_steps = peaks[i] - peaks[i-1]
+
+            if frames_between_steps < threshold:
+                peaks = np.delete(peaks, i)
+                i-=1
+        i+=1
+
+    return difference[peaks], peaks, starting_point
+
 def reject_outliers(data, m=1):
 
     cleaned_data = data[abs(data - np.mean(data)) < m * np.std(data)]
@@ -152,7 +175,7 @@ def reject_outliers(data, m=1):
 
     return cleaned_data, indices
 
-def get_step_metrics(tracklets, video, person_id, dim, joint='Heel', smoothing=False, _print=False):
+def get_step_metrics(tracklets, video, person_id, dim, joint='Heel', smoothing=True, _print=False):
 
     '''
     Caculcates bunch of step related biometrics for heels or ankles.
@@ -183,7 +206,7 @@ def get_step_metrics(tracklets, video, person_id, dim, joint='Heel', smoothing=F
         avg_step_length : float
             Average step length.
         speed : float
-            Average speed from first to last step in m/timeframes.
+            Average speed from first to last step in m/s.
         time : int
             Time from first to last step in timeframes.
         distance : float
@@ -200,23 +223,17 @@ def get_step_metrics(tracklets, video, person_id, dim, joint='Heel', smoothing=F
         r = np.array(moving_average(pd.DataFrame(r))).ravel()
         l = np.array(moving_average(pd.DataFrame(l))).ravel()
 
-    #calculate difference between ankles in the dimension
+    #calculate difference between joints in the dimension
     difference = np.absolute(np.subtract(r, l))
 
-    #indices of local maxima
-    maxima = argrelextrema(difference, np.greater)[0]
-
-    #steps length
-    steps_length = difference[maxima]
-
-    #get rid of outliers
-    steps_length, indices = reject_outliers(steps_length)
+    #get rid of noise
+    steps_length, indices, starting_point = filter_steps(difference)
 
     #speed
     print('Processing video (step_length):', video, 'id:', person_id)
-    time = np.ptp(maxima[indices])
-    distance = np.sum(steps_length[1:])
-    speed = distance/time #meters per timeframe
+    time = indices[-1] - starting_point #in timeframes
+    distance = np.sum(steps_length)
+    speed = (distance/time) * 30 #m/s video are in 30 fps
 
     #average step
     avg_step_length = np.average(steps_length)
@@ -229,10 +246,11 @@ def get_step_metrics(tracklets, video, person_id, dim, joint='Heel', smoothing=F
     
     return steps_length, avg_step_length, speed, time, distance
 
-def get_asymmetry(tracklets, video, person_id, dim, joint='Hip', smoothing=False, _print=False):
+def get_asymmetry(tracklets, video, person_id, dim, joint='Heel', smoothing=True, _print=False):
     
     '''
-    Caculcates asymmetry based on the hips.
+    Calculates asymmetry based on the provided joint by subtructing AUCs over time (left from right).
+    The higher the bigger assymetry. Indicates only strength not direction. 
 
     INPUTS
     ------
@@ -275,7 +293,7 @@ def get_asymmetry(tracklets, video, person_id, dim, joint='Hip', smoothing=False
     r = r[~np.isnan(r)]
     l = l[~np.isnan(l)]
 
-    asymmetry = 1 - (np.trapz(r) / np.trapz(l)) # > 0: asymmetry towards right, < 0: asymmetry towards left
+    asymmetry = np.absolute(np.trapz(r) - np.trapz(l))
     
     if _print:
         print(f'Assymetry: {asymmetry}')
@@ -305,38 +323,31 @@ def process_biometrics_df(folder='pickles'):
     model_outputs = load_pickles(folder=folder)
 
     tracklets_dict = {}
-    excluded = ['demo_abnormal-circumduction_gait-frontback']
 
     for video_name, video_results in model_outputs.items():
-        if video_name not in excluded:
-            tracklets_dict[video_name] = extract_joints(video_results)
+        tracklets_dict[video_name] = extract_joints(video_results)
     
     output_dict = {"walking_type": [], "video_id": [], "person_id": [], "camera_type": [], "steps_length": [], 
                    "avg_step_length": [], "speed": [], "time": [], "distance": [], "asymmetry": []}
     
 
     for video in tracklets_dict:
-
-        n_tracklets = 0
         video_name = video.split("demo_")[1]
         walking_type, video_id, camera_type = video_name.split("-")
-        if camera_type == "side" or "side2":
+        if (camera_type == "side" or "side2") or (video_id == 'drunk_woman' and person_id == 1):
             dim_step = 0
             dim_asym = 2
         else:
             dim_step = 2
             dim_asym = 0
 
-        n_people = len(tracklets_dict[video])
-
-        
-        for person_id in range(n_people):
-            if video == 'demo_normal-DTU4-back' and person_id == 1:
+        for person_id in tracklets_dict[video].keys():
+            if video == 'demo_normal-DTU4-back' and person_id == 2:
                 continue
             
             steps_length, avg_step_length, speed, time, distance = get_step_metrics(tracklets_dict, video, person_id=person_id, 
-                                                                                    dim=dim_step, joint='Heel', smoothing=False)
-            asymmetry = get_asymmetry(tracklets_dict, video, person_id=person_id, dim=dim_asym, joint='Hip', smoothing=True)
+                                                                                    dim=dim_step, joint='Heel', smoothing=True)
+            asymmetry = get_asymmetry(tracklets_dict, video, person_id=person_id, dim=dim_asym, joint='Heel', smoothing=True)
             output_dict["walking_type"].append(walking_type)
             output_dict["video_id"].append(video_id)
             output_dict["person_id"].append(person_id)
