@@ -127,6 +127,8 @@ def plot_joints_trajectory(tracklets, person_id, joint_list, dim):
 
     plt.legend(joint_list)
     plt.title(joint_names)
+    plt.xlabel('time')
+    plt.ylabel('distance in meteres')
     plt.show()
 
 def moving_average(data, window_size=3):
